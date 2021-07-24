@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<BorlandProject>
+	<Transactions>
+    <Transaction>2021/04/01 18:32:21.000.239,=C:\Users\manel\OneDrive\Documentos\Embarcadero\Studio\Projects\Unit1.cpp</Transaction>
+    <Transaction>2021/04/01 18:32:21.000.154,=C:\Users\manel\OneDrive\Documentos\Embarcadero\Studio\Projects\Project1PCH1.h</Transaction>
+    <Transaction>2021/04/01 18:32:41.000.827,=C:\Users\manel\OneDrive\Documentos\Embarcadero\Studio\Projects\File1.cpp</Transaction>
+    <Transaction>2021/04/01 18:32:41.000.780,=C:\Users\manel\OneDrive\Documentos\Embarcadero\Studio\Projects\Project1PCH1.h</Transaction>
+    <Transaction>2021/04/01 18:33:25.000.902,=C:\Users\manel\OneDrive\Documentos\Embarcadero\Studio\Projects\DLL_omdaq_rotation_64bits_noise_cancel\rs232.c</Transaction>
+    <Transaction>2021/04/01 18:33:25.000.864,=C:\Users\manel\OneDrive\Documentos\Embarcadero\Studio\Projects\DLL_omdaq_rotation_64bits_noise_cancel\OmXyzDll.cpp</Transaction>
+    <Transaction>2021/04/01 18:33:25.000.917,=C:\Users\manel\OneDrive\Documentos\Embarcadero\Studio\Projects\DLL_omdaq_rotation_64bits_noise_cancel\rs232.h</Transaction>
+    <Transaction>2021/04/01 18:33:25.000.886,=C:\Users\manel\OneDrive\Documentos\Embarcadero\Studio\Projects\DLL_omdaq_rotation_64bits_noise_cancel\OmXyzDll_StatusBits.h</Transaction>
+    <Transaction>2021/04/01 18:33:44.000.201,C:\Users\manel\OneDrive\Documentos\Embarcadero\Studio\Projects\OmXyzDll.cbproj=C:\Users\manel\OneDrive\Documentos\Embarcadero\Studio\Projects\Project1.cbproj</Transaction>
+    <Transaction>2021/04/01 18:33:53.000.766,C:\Users\manel\OneDrive\Documentos\Embarcadero\Studio\Projects\DLL_omdaq_rotation_64bits_noise_cancel\OmXyzDll.cbproj=C:\Users\manel\OneDrive\Documentos\Embarcadero\Studio\Projects\OmXyzDll.cbproj</Transaction>
+  </Transactions>
+</BorlandProject>
