@@ -1,44 +1,22 @@
-
-/* ---------------------------------------------------------------------------
-
- This file contains the main code (OmXyzDll.cpp) to build a DLL that controls a
- motorized stage with 2 translation degrees of freedom. the motion along each
- axis is assured by a stepper motor with a step of 2.54 microns. The control of
- this stage is assured by a Arduino Nano.
-
- All the comments were made by me. This file was built using the source file
- provided with OMDAQ-3 as a starting point. Some of the comments are just
- small modifications to what what Geoff Grime originally commented.
-
- Any questions can be sent to manelfortunato94@gmail.com
-
-
- Manuel Fortunato, June 2021
- ---------------------------------------------------------------------------*/
-
-
-
+// ---------------------------------------------------------------------------
+//
+// This file contains dummy procedure bodies as examples and for testing.
+//
+// The code in these procedures simulates an XYZ-2R stage
+//
+//
+// ---------------------------------------------------------------------------
 #pragma hdrstop
+#include <math.h>
 #include <time.h>
-#include<math.h>
-#include <cmath>
-#include <stdio.h>
-#include <stdlib>
-#define XYZDLL_EXPORTS 1
-#include "OmXyzDll.h"
-#include "rs232.h"
-#include <cstring>
-#include <string>
-#include <sstream>
 
 #define XYZDLL_EXPORTS 1
 #include "OmXyzDll.h"
 // ---------------------------------------------------------------------------
 #pragma package(smart_init)
 
-// ______Global variables
+// ______Local variables for testing____________________________
 //
-
 double CurrentDllPosition[3];
 double CurrentDllAngle[3];
 double DemandPosition[3];
@@ -50,57 +28,24 @@ double RotSpeed[3];
 clock_t tLin;
 clock_t tRot;
 bool DllPowerOn;
-#define nOptions 3
+#define nOptions 2
 char OptionText[nOptions][32];
 bool optionsCopied = false;
+//
+// _____________________________________________________________
 
-
-/*Global variables are useful since they can be accessed and modified by any
- function.
- Besides the global variables included originally in the code provided
- the following global variables were added. */
-
-//Global variables to store RS232 communication parameters
-char modo[4];
-int taxabaud;
-int port_nmr;
-
-
-using namespace std;
-
-/******************************* Adminstration routines *******************************/
-
-
-/*XyzCapabilityMask returns a DWORD mask that describes the basic functionality
- of the hardware and allows OMDAQ to make the user interface.
- The return value is assembled from the capability constants
- defined in OmXyzDll_StatusBits.h */
- /*>>>>>> THIS MUST BE DEFINED <<<<<<<*/
+// Adminstration routines ++++++++++++++++++++++++++++++++++++++++++++++++++++
+//
+// XyzCapabilityMask returns a DWORD mask that describes the basic functionality
+// of the hardware and allows OMDAQ to make the user interface.
+// The return value is assembled from the capability constants
+// defined in OmXyzDll_StatusBits.h
+// >>>>>> THIS MUST BE DEFINED <<<<<<<
 XYZ_DLL DWORD _CALLSTYLE_ XyzCapabilityMask() {
-
-
-	/*The flag XYZCAP_XYZ3 declares that the stage is capable of translation
-	along the 3 Cartesian axes (linear axes). Due to a shortcoming in OMDAQ-3
-	this must always be	declared and REQUIRES that:
-
-  1) The procedures related to moving (XyzMoveToPosition(...)) or setting up
-  the position (XyzSetCurrentPosition(...)) along the linear axes must do
-  nothing for the unavailable axes (and always return true).
-  2) The procedure to obtain the position of the stage along the linear axes
-  (XyzGetPosition(...)) must export 0 for the unavailable axes (and always
-  return true).
-  3) When the status of the stage is queried through the function
-  XyzAxisStatus(-1, Dword *AxisStatus) the status mask must be ORed with the
-  appropriate ST_AX_INPOSITION flag for each of the unavailable linear axis,
-  and with the flag ST_ALL_XYZ_MOTORS_ON. This informs OMDAQ that the
-  "missing motors" are always in position and ON.
-
-  IMPORTANT: The status lights in the XYZ control panel should be green and/or
-  blue but NOT red.*/
-
-
-  return (XYZCAP_XYZ3);
-
+  return (XYZCAP_XYZ3 | XYZCAP_ROT3 | XYZCAP_POWER_ONOFF | XYZCAP_TEMPSENSOR);
+  // | XYZCAP_TEMPSENSOR);
+  // This defines an XYZ + 3R stage with Power Off capability, (temperature sensors) and
+  // no home switch
 }
 
 //
@@ -113,81 +58,75 @@ XYZ_DLL bool _CALLSTYLE_ XyzDllVersion(int * majorVersion, int * minorVersion,
   return true;
 }
 
-/* XyzDescription fills a char string that describes the XYZ stage
- nChar is the length of the supplied buffer (typically 80 characters)*/
+//
+// XyzDescription fills a char string that describes the XYZ stage
+// nChar is the length of the supplied buffer (typically 80 characters)
+//
 XYZ_DLL bool _CALLSTYLE_ XyzDescription(char *statusText, int nChar) {
   strncpy(statusText, "XYZ stage controlled by user-supplied DLL", nChar);
   return true;
 }
 
-/* XyzHwDescription is meant to fill a char string that decsribes the current
-setup (COM ports, card slot numbers etc.) nChar is the length of the supplied
-buffer. (typically 80 characters). */
+// XyzHwDescription fills a char string that decsribes the current setup
+// (COM ports, card slot numbers etc.)
+// nChar is the length of the supplied buffer. (typically 80 characters)
+//
 XYZ_DLL bool _CALLSTYLE_ XyzHwDescription(char *statusText, int nChar) {
   strncpy(statusText, "COM45 9600baud", nChar);
   return true;
 }
 
-
-/* XyzAuthor returns the author credits and copyrights etc.
- nChar is the length of the supplied buffer.  (typically 80 characters) */
+//
+// XyzAuthor returns the author credits and copyrights etc.
+// nChar is the length of the supplied buffer.  (typically 80 characters)
 XYZ_DLL bool _CALLSTYLE_ XyzAuthor(char *statusText, int nChar) {
   strncpy(statusText,
 	  "DLL written by A. Coder (c), ACME Software Inc., 2020", nChar);
   return true;
 }
 
+//
+// XyzDisplayDecimals returns the number of decimal places to disply inthe readouts
+// of position in millimetres and angle in degreees (the same value is used for both
+// displays.
+// >>>>>>>>>>>>>  NOTE:  This is no longer used.  OMDAQ sets the display resolution
+// XYZ_DLL int _CALLSTYLE_ XyzDisplayDecimals() {
+// return 3;
+// }
+// -----------------------------------------------------
 
-
-// ---------Procedures for optional parameters ----------
-/* When OMDAQ-3 is executed there is a window that pops up asking for
-parameters. These parameters are passed as strings to the
-XyzInitialise(char **options, int szOptions) function through the char
-**options argument.
-
-In order to create the window interface OMDAQ needs to know the number of
-parameters and the name of each one. These are obtained using the
-XyzOptionCount and XyzOptionHeader functions.
-
-XyzOptionValue establishes the default parameter values. This is used to
-provide sensible starting values for the parameters to assist the user in
- setting up a new stage.
- */
+// ---------Procedures for optional parameters -----------------------------------
+// Any DLL parameters that neeed to be specified at runtime can be passed as
+// strings to the XyzInitialise(...) procedure through the options argument.
+// In order to manage the user interface OMDAQ needs to know the number of
+// and a description of each one.  These are obtained using the XyzOptionCount
+// and XyzOptionHeader procedures. XyzOptionValue returns the current value
+// of an option. This is used primarily BEFORE XyzInitialise() is called to
+// provide sensible starting values for the parameters to assist the user in
+// setting up a new stage.
+//
 XYZ_DLL int _CALLSTYLE_ XyzOptionCount() {
   return nOptions;
 }
 
-/*In OMDAQ-3 there is the possibility to specify a path to an optional
-parameters file through Tools->Hardware options->Xyz_stage->Edit->Configuration
-I believe that the function XyzSetParameterFileName provides this path to the
-DLL through the cText pointer argument so that the parameters can be retrieved.
-*/
+// These allow the DLL to get the parameter filename and the DDL folder from OMDAQ
 XYZ_DLL bool _CALLSTYLE_ XyzSetParameterFileName(wchar_t *cText, int nChar) {
   // IniFile = UnicodeString(&cText[0]);
   return true;
 }
 
-
-/*In OMDAQ-3 there is the possibility to specify what I believe to be a
-diferent path for the DLL to be located in (it is located by default in
-the instalation folder). This path field can be accessed through
-Tools->Hardware options->Xyz_stage->Edit->Configuration. However I don't think
-that this functionality is working correctly (OMDAQ-3.2.4.1009).
-The XyzSetDllFolder function is probably meant to get this new path
-to the DLL folder through the statusText pointer argument.
-*/
 XYZ_DLL bool _CALLSTYLE_ XyzSetDLLfolder(wchar_t *statusText, int nChar) {
   return true;
 }
 
-/* XyzOptionHeader sets up the name of the parameters in the parameters
-window interface. */
+//
+// XyzOptionHeader returns a SHORT description of the optional parameter nHdr.  This is used in the
+// user interface for setting up the stage BEFORE the initialisation routine is called.
+// Should return false if nHdr is out of range.
 XYZ_DLL bool _CALLSTYLE_ XyzOptionHeader(int nHdr, char * optionsHdr,
 	int szOptionsHdr) {
   bool ok = false;
-  //Added parameters to set up RS232 communication
-  //Also had to change the macro #define nOptions 2 to #define nOptions 3
-  char * initHdrs[nOptions] = {"COM", "Baud", "Mode"};
+  char * initHdrs[nOptions] = {"COM", "Baud"}; // For example...
   if ((nHdr >= 0) && (nHdr < nOptions)) {
 	strncpy(optionsHdr, initHdrs[nHdr], szOptionsHdr);
 	ok = true;
@@ -195,17 +134,15 @@ XYZ_DLL bool _CALLSTYLE_ XyzOptionHeader(int nHdr, char * optionsHdr,
   return ok;
 }
 
-
-/* XyzOptionValue sets the default parameter values in the parameters window
-interface to assist the user in setting up a new stage. Should return false if
-nHdr is out of range. */
+//
+// XyzOptionValue returns the current value of an option.  This is used primarily BEFORE
+// XyzInitialise() is called to provide sensible starting values for the parameters
+// to assist the user in setting up a new stage.
+// Should return false if nHdr is out of range.
 XYZ_DLL bool _CALLSTYLE_ XyzOptionValue(int nHdr, char * optionVal,
 	int szOptionVal) {
   bool ok = false;
-
-  //Added initial sensible values for RS232 communication
-  //the COM port number is the only field that may have to be changed
-  char * initVals[nOptions] = {"5", "9600", "8N1"};
+  char * initVals[nOptions] = {"COM4", "9600"}; // For example...
   if ((nHdr >= 0) && (nHdr < nOptions)) {
 	if (!optionsCopied) {
 	  strncpy(&OptionText[nHdr][0], initVals[nHdr], 32*sizeof(char));
@@ -215,31 +152,26 @@ XYZ_DLL bool _CALLSTYLE_ XyzOptionValue(int nHdr, char * optionVal,
   }
   return ok;
 }
+//
+// End of administration routines ++++++++++++++++++++++++++++++++++++++++++++
 
-
-/****************************** End of administration routines *******************************/
-
-
-
-
-/****************************** Initialisation routines *******************************/
+// Initialisation routines +++++++++++++++++++++++++++++++++++++++++++++++++++
 
 // ---------------------------------------------------------------------------
 XYZ_DLL bool _CALLSTYLE_ XyzInitialise(char **options, int szOptions) {
-  /* Initialisation code here
-
-   This function obtains the parameter values from the parameters window
-   interface through the char **options argument. Namely the RS232
-   communication parameters and the step of each avaliable axis. Global
-   variables are defined with these parameters so that they can be used by
-   every function in the DLL.
-
-   The RS232 channel is opened.
-
-	*/
-
-
-
+  // Initialisation code here
+  // This should include e.g.:  allocation of resources, setting up comms link,
+  // starting the controller, finding the home marker, setting up any hardware parameters
+  // such as motor current, motor steps and scaling, encoder steps and scaling, etc.
+  // Speed and Acceleration are set by OMDAQ.
+  //
+  // If the stages have home markers, OMDAQ will move the stage to the position at last shutdown,
+  // othewise, OMDAQ defines the stage position after initialisation to be the position at last shutdown.
+  // Return false if it fails (IMPORTANT!!)
+  //
+  // If the stage needs optional parameters which can be set up at runtime (e.g. COM port
+  // number, bauds, etc.) then these can be passed in as character strings in the options arguments.
+  // These are set by the user in the "Miscellaneous" tab of the XYZ setup dialog
 
   if (szOptions != nOptions) {
 	return false;
@@ -251,399 +183,186 @@ XYZ_DLL bool _CALLSTYLE_ XyzInitialise(char **options, int szOptions) {
   }
   optionsCopied = true;
 
-
-
   for (int i = 0; i < 3; ++i) {
 	CurrentDllPosition[i] = 0;
 	CurrentDllAngle[i] = 0;
   }
-
-
-
-
-
-
-  //in mm
-  PosStep[0]=0.00254;
-  PosStep[1]=0.00254;
-  PosStep[2]=0;
-
-
-
-
-  //Getting RS232 parameters from OMDAQ-3 parameters window
-
-  if(options[0]!=NULL){
-  port_nmr=atoi(options[0])-1;
-  }
-
-  if(options[1]!=NULL) {
-  taxabaud=atoi(options[1]);
-  }
-
-
-  if(options[2]!=NULL) {
-  std::strcpy(modo,options[2]);
-  }
-
-
-	//Openning communications port.
-	if(RS232_OpenComport(port_nmr, taxabaud, modo))
-  {
-	return(0);
-  }
-
-
   DllPowerOn = true;
   return true;
 }
 
 // ---------------------------------------------------------------------------
-/* The XyzShutDown() function is meant to perform a Full shutdown - stop stage
-  if it's moving, power down, free comms links and free resources.
-
-   OMDAQ saves the position at shutdown ready for the next startup.
-   Returns false if it fails. */
 XYZ_DLL bool _CALLSTYLE_ XyzShutDown() {
-
-  /*This was not a needed funcionality
-	so this function was not used. */
-
+  // Full shutdown code here  - stop stage if it's moving,
+  // power down, free comms links and free resources.
+  //
+  // OMDAQ saves the position at shutdown ready for the next startup.
+  // return false if it fails.
   return true;
 }
 
-/*--------------------------------------------------------------------------*/
- /* XyzSetCurrentPosition(double * NewPosition) is meant to inform the DLL of
-the values of the positions of the stage along the linear axes, according to
-OMDAQ. NewPosition is a pointer to a double[3] array which contains the
-values of the absolute positions for the 3 linear axes. This function is used
-when the current position is known by OMDAQ but not by the DLL.
-This is only (I believe) in 2 situations:
-	1 - When the program is initialised. The position is the position
-	in which the stage was in when OMDAQ was last shut down.
-	2 - When the reference frame is changed in OMDAQ. That is, a new set of
-	coordinates is assigned to the current position of the stage.
-
-
-Note that this procedure is not required for stages with hardware zero markers,
-in which case just return a true.
-
-.*/
+// --------------------------------------------------------------------------
+// These procedures initialise the values of the position or angle readouts to the supplied values.
+// NewPosition and NewAngle are pointers to double[3] arrays which contain on entry the
+// new values of the absolute postions (mm) or angles (deg) for axes 0..2
+// Is not required for stages with hardware zero markers, in which case just return true.
 XYZ_DLL bool _CALLSTYLE_ XyzSetCurrentPosition(double * NewPosition) {
-
-  /*In this function the current position of the stage is set to correspond
-  to the position received in the argument of the
-  function - double * NewPosition.
-  There's no motion involved, this function just sets new frame of reference
-  */
-
-
-  for (int i = 0; i < 2; ++i) {
+  for (int i = 0; i < 3; ++i) {
 	CurrentDllPosition[i] = NewPosition[i];
 	DemandPosition[i] = NewPosition[i];
-
+	PosStep[i] = 0;
   }
-
-  //The 3rd axis is not used so it's position is always 0
-  CurrentDllPosition[2]=0;
-  DemandPosition[2]=0;
   return true;
 }
 
-/* XyzSetCurrentAngle(...) is the analogous function to XyzSetCurrentPosition
-but for the angles. However since there are no rotation degrees of freedom for
-this stage this function is not important. */
 XYZ_DLL bool _CALLSTYLE_ XyzSetCurrentAngle(double * NewAngle) {
-
-
   for (int i = 0; i < 3; ++i) {
 	CurrentDllAngle[i] = NewAngle[i];
 	DemandAngle[i] = NewAngle[i];
+	AngleStep[i] = 0;
   }
   return true;
 }
+//
+// End of initialisation ++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-
-/********************************* End of initialisation routines ********************************/
-
-
-
-
-
-
-/********************************** Routines to set up motion parameters *******************************/
-
-/* XyzSetSpeed(...) and XyzSetAccel(...) set the LINEAR speed and acceleration
-per axis, respectively. The acceleration is assumed to be the same in the accel
-and decel phases.  Units are  mm/sec and mm/sec2.
-NewAccel and NewSpeed are pointers to double[3] arrays containing the new
-values for each axis.
-At present OMDAQ only allows a single acceleration value for all axes (possibly
-the first argument of NewAccel, NewAccel[0]?). */
+// Motion parameters +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// These set the LINEAR speed and acceleration per axis (assumed to be the same in the
+// accel and decel phases.  Units are  mm/sec and mm/sec2
+// NewAccel and NewSpeed are pointers to double[3] arrays containing the new values for each axis.
+// At present OMDAQ only allows a single accel value for all axes.
 XYZ_DLL bool _CALLSTYLE_ XyzSetAccel(double * NewAccel) {
-	/*This was not a needed funcionality
-	so this function was not used. */
   return true;
 }
 
 XYZ_DLL bool _CALLSTYLE_ XyzSetSpeed(double * NewSpeed) {
-
-	/*This was not a needed funcionality
-	so this function was not used.*/
-
   for (int i = 0; i < 3; ++i) {
 	LinSpeed[i] = NewSpeed[i];
   }
-
   return true;
 }
 
-/* XyzSetRotSpeed(...) and XyzSetRotAccel set the ROTATIONAL speed and
-acceleration per axis, respectively. The acceleration is assumed to be the same
-in the accel and decel phases.  Units are  deg/sec and deg/sec^2.
- NewAccel and NewSpeed are pointers to double[3] arrays containing the new
- values for each axis.   */
+// These set the ROTATIONAL speed and acceleration per axis (assumed to be the same in the
+// accel and decel phases.  Units are  deg/sec and deg/sec2
+// NewAccel and NewSpeed are pointers to double[3] arrays containing the new values for each axis.
 XYZ_DLL bool _CALLSTYLE_ XyzSetRotAccel(double * NewAccel) {
-
-	/*This was not a needed funcionality
-	so this function was not used.*/
-
+  // This comment is no longer valid:  OMDAQ DOES set rotary acceleration.
+  ///*  At present OMDAQ does not define rotational acceleration, so this call is not used.
+  // This must be set up during initialisation */
+  //
   return true;
 }
 
 XYZ_DLL bool _CALLSTYLE_ XyzSetRotSpeed(double * NewSpeed) {
-
-	/*This was not a needed funcionality
-	so this function was not used.*/
-
   for (int i = 0; i < 3; ++i) {
 	RotSpeed[i] = NewSpeed[i];
   }
   return true;
 }
 
-/* XyzPowerOn(...) is meant to control the power of the stage (on or off).
- If Enabled = true (false) the power should be turned ON (OFF) for all axes.
- It should leave the controller active and reporting.
- Returns true for success. */
+// Power On-off.  Turns the power to all axes ON (Enabled = true) or OFF (Enabled = false)
+// Leaves the controller active and reporting.
+// returns true for success.
 XYZ_DLL bool _CALLSTYLE_ XyzPowerOn(bool Enabled) {
-
-	/*This was not a needed funcionality
-	so this function was not used.*/
-
   DllPowerOn = Enabled;
   return true;
 }
+// End of motion parameters +++++++++++++++++++++++++++++++++++++++++++++++++++
 
-
-/********************************** End of routines to set up motion parameters *******************************/
-
-
-
-
-
-
-
-/********************************** Routines for motion command *******************************************/
-
-
-/*To understand the format of the strings sent to the Arduino Nano please
- read section 2 - "Communication with
-Nano Arduino" of the user manual of the Universal DLL ("Universal DLL.pdf").
-This stage is a particular case with 2 translation axes of the general case
- described in "Universal DLL.pdf".
-*/
-
-
-/* XyzMoveToPosition(...) is meant to move the stage along the linear
-(Cartesian) axes to the absolute position values supplied in the arguments.
-Arguments are pointers to double[3] containing the new values.
-The routines are expected to return immediately - waiting for the stage to
-reach it's position is handled by OMDAQ alone and not by the DLL
-*/
+// Motion commands. ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// Move the position or angle to the absolute values supplied in the arguments.
+// Arguments are pointers to double[3] containing the new values.
+// The routines are expected to return immediately - waiting for position is handled by OMDAQ
+//
 XYZ_DLL bool _CALLSTYLE_ XyzMoveToPosition(double * NewPosition) {
-
-
-
-    	/*
-	In this function I just create a string with the motion order for the
-	Arduino Nano. For each of the two motion axes, taking into
-	account the current position and the new one, I provide 2 numbers to the
-	order string: the length of the motion in number number of steps and the
-	sense of motion (0 or 1).
-
-	*/
-
-
-
   for (int i = 0; i < 3; ++i) {
 	DemandPosition[i] = NewPosition[i];
+	PosStep[i] = (NewPosition[i] > CurrentDllPosition[i]) ? 1 : -1;
   }
-
-  string dir[2];
-  string nsteps[2];
-  string order_aux;
-  string order_aux2;
-
-
-  for (int i = 0; i < 2; ++i) {
-		if (NewPosition[i]>CurrentDllPosition[i]) {
-			/*finding number of steps for the desired position;
-			turning the double variable with no. of steps into a string
-			and erasing the decimal part in the string since the order for the
-			NanoArduino can only have an integer number of steps*/
-			nsteps[i]=std::to_string((NewPosition[i]-CurrentDllPosition[i])/PosStep[i]);
-			std::string::size_type k = nsteps[i].find(".");
-			nsteps[i].erase(k, std::string::npos);
-			dir[i]="1";
-		}
-		else {
-			nsteps[i]=std::to_string((CurrentDllPosition[i]-NewPosition[i])/PosStep[i]);
-			std::string::size_type k = nsteps[i].find(".");
-			nsteps[i].erase(k, std::string::npos);
-			dir[i]="0";
-		}
-  }
-
-  //Setting up order and sending it
-  order_aux=dir[0]+" "+nsteps[0]+" "+dir[1]+" "+nsteps[1]+"\n";
-
-  const char* order=order_aux.data();
-
-
-
-
-  RS232_cputs(port_nmr, order);
-
-
-
   tLin = clock();
   return true;
 }
 
-
-/* XyzMoveToAngle(...) is the analogous function to XyzMoveToPosition
-but for the angles. However since there are no rotation degrees of freedom for
-this stage this function is not important. */
 XYZ_DLL bool _CALLSTYLE_ XyzMoveToAngle(double * NewAngle) {
-
+  for (int i = 0; i < 3; ++i) {
+	DemandAngle[i] = NewAngle[i];
+	AngleStep[i] = (NewAngle[i] > CurrentDllAngle[i]) ? 1 : -1;
+  }
   tRot = clock();
   return true;
 }
 
-// XyzHalt() is meant to perform an immediate halt (emergency stop, so no
-// deceleration) on all axes
+// XyzStop performs an immediate halt (emergency stop, so no deceleration) on all axes
 XYZ_DLL bool _CALLSTYLE_ XyzHalt() {
-
-	/*This was not a needed funcionality
-	so this function was not used.*/
-
+  DllPowerOn = false;
+  for (int i = 0; i < 3; ++i) {
+	PosStep[i] = 0;
+	AngleStep[i] = 0;
+	DemandPosition[i] = CurrentDllPosition[i];
+	DemandAngle[i] = CurrentDllAngle[i];
+  }
   return true;
 }
+//
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-
-/********************************** End of routines for motion command *******************************************/
-
-
-
-
-
-/********************************** Routines for stage status reporting **********************************************/
-
-
-/* XyzGetPosition(...) provides the current value of the
-position of the stage to OMDAQ-3. This value is exported
-in the argument, which is a pointer to a double[3]. The library
-receives the required position for the stage by the user, through OMDAQ, and
-exports the actual position reached, to OMDAQ. Of course that there is no
-feedback from the stage to get the actual physical position. But this
-function provides the expected reached position taking into account that the
-motion is made by stepper motors.
-*/
+// Status reporting +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// GetPosition and GetAngle read back the current values into the arguments, which are pointers
+// to double[3].
 XYZ_DLL bool _CALLSTYLE_ XyzGetPosition(double * CurrentPosition) {
   clock_t tNow = clock();
-
-    /*
-
-  For each axis, this function exports the approximation
-  to the required position that the stepper motor that performs the motion
-  is capable of.
-
-  If the required position is greater (smaller) than the current position,
-  the motor's final position is smaller (greater) than the required position.
-  This is due to the motion order  that is sent in the function
-  XyzMoveToPosition(...) - the number of steps for each motion is rounded down.
-
-  */
-
-  /*Step slightly smaller than real step just because of the (finite)
-  precision of doubles; This is a small trick to assure the correct behaviour
-  for the specific cases where the actual position that the motor achieves can
-   match exactly the required position by the user.
-  */
-  double posstep[2];
-  posstep[0]=PosStep[0]-0.01*PosStep[0];
-  posstep[1]=PosStep[1]-0.01*PosStep[1];
-
-  for(int i=0; i<2; ++i) {
-
-	  if(DemandPosition[i]>CurrentDllPosition[i]){
-	  /*This "while" gets the closest approximation that the motor is capable
-	  of to the required position, by default.
-		*/
-		while ((DemandPosition[i]-CurrentDllPosition[i]) >= posstep[i] ) {
-			CurrentDllPosition[i]+= PosStep[i];
+  for (int i = 0; i < 3; ++i) {
+	if (PosStep[i] != 0) {
+	  CurrentDllPosition[i] += PosStep[i] * (tNow - tLin) * 0.001 * LinSpeed[i];
+	  if (PosStep[i] > 0) {
+		if (CurrentDllPosition[i] >= DemandPosition[i]) {
+		  CurrentDllPosition[i] = DemandPosition[i];
+		  PosStep[i] = 0;
+		}
 	  }
-  }
-  else if(DemandPosition[i]<CurrentDllPosition[i]){
-		/*This "while" gets the closest approximation that the motor is capable
-		of to the required position, by excess.*/
-		while ((CurrentDllPosition[i] - DemandPosition[i]) >= posstep[i] ) {
-			CurrentDllPosition[i]-= PosStep[i];
+	  else {
+		if (CurrentDllPosition[i] <= DemandPosition[i]) {
+		  CurrentDllPosition[i] = DemandPosition[i];
+		  PosStep[i] = 0;
+		}
 	  }
-
+	}
+	CurrentPosition[i] = CurrentDllPosition[i];
   }
-
-  }
-
-  CurrentPosition[0] =CurrentDllPosition[0];
-  CurrentPosition[1]=CurrentDllPosition[1];
-  //3rd axis' position is always 0
-  CurrentPosition[2]=0;
-
-
   tLin = tNow;
   return true;
 }
 
-/*XyzGetAngle(...) is the analogous function to XyzGetPosition(...) but for the
-rotation axes. Since there are no rotation axes in this stage this function is
-not important. */
 XYZ_DLL bool _CALLSTYLE_ XyzGetAngle(double * CurrentAngle) {
   clock_t tNow = clock();
-
-
+  for (int i = 0; i < 3; ++i) {
+	if (AngleStep[i] != 0) {
+	  CurrentDllAngle[i] += AngleStep[i] * (tNow - tRot) * 0.001 * RotSpeed[i];
+	  if (AngleStep[i] > 0) {
+		if (CurrentDllAngle[i] >= DemandAngle[i]) {
+		  CurrentDllAngle[i] = DemandAngle[i];
+		  AngleStep[i] = 0;
+		}
+	  }
+	  else {
+		if (CurrentDllAngle[i] <= DemandAngle[i]) {
+		  CurrentDllAngle[i] = DemandAngle[i];
+		  AngleStep[i] = 0;
+		}
+	  }
+	}
+	CurrentAngle[i] = CurrentDllAngle[i];
+  }
   tRot = tNow;
   return true;
 }
 
-
-
-/*
- GetMotorTemp is meant to return the temperature in degrees of all axes/motors.
- MotorTemp is a pointer to a double array.
- If iAxis = -1 MotorTemp is an array big enough to hold all motor temperatures.
- If iAxis >= 0 the temperature of iAxis is put into the first element of the
- array.
- Of course that there must be a temperature sensor in the motors for this
- function to be useful.
-*/
-
+//
+// GetMotorTemp returns the temperature in degrees of all axes.
+// MotorTemp is a pointer to a double array
+// if iAxis = -1 this it's an array big enough to hold all motor temps.
+// If iAxis >= 0 the temp of iAxis is put into th efirst element of the array.
 XYZ_DLL bool _CALLSTYLE_ XyzGetMotorTemp(double *MotorTemp, int iAxis) {
-
-	/*This was not a needed funcionality
-	so this function was not used.*/
-
   int iMin = 0;
   int iMax = 6;
   if (iAxis >= 0) {
@@ -658,87 +377,23 @@ XYZ_DLL bool _CALLSTYLE_ XyzGetMotorTemp(double *MotorTemp, int iAxis) {
 	MotorTemp[iDest] = 25 + 0.01 * random(500);
   }
 }
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-
-/* XyzStageStatus(...) informs OMDAQ-3 of what is happening with the whole
-stage by calling the function XyzAxisStatus(int iAxis, DWORD * AxisStatus)
-with iAxis=-1. Please read the description of the XyzAxisStatus(...) function
-below.
-*/
+// Status and Error handling commands.  *************************************
+//
+// StageStatus returns the DRVSTAT (UINT64) status mask built
+// from the mask constants defined in OmXyzDll_StatusBits.h.  Optionally the program may ask
+// for more details in the AxisStatus DWORDs by passing a non-NULL pointer to
+// AxisiStstus.  This is DWORD[3] or DWORD[6] depending on the capabilities of the stage.
+// if iAxis = -1 this it's an array big enough to hold all axis status.
+// If iAxis >= 0 the temp of iAxis is put into the first element of the array.
+// Note that for single axis calls only the single axis segments of status are filled
+// so this must be managed in th ecalling program,
 XYZ_DLL DRVSTAT _CALLSTYLE_ XyzStageStatus(DWORD * AxisStatus) {
   return XyzAxisStatus(-1, AxisStatus);
 }
 
-
-/* XyzAxisStatus(...) informs OMDAQ-3 of what is happening with the stage by
-returning the DRVSTAT (UINT64) status mask built from the mask constants
-defined in OmXyzDll_StatusBits.h. Each mask constant that is ORed with the
-status mask activates one particular bit of the status mask to inform something
-to OMDAQ. For example:
-
-ST_AX1_INPOSITION = 100000000000
-ST_AX2_INPOSITION = 10000000000000000000
-ST_AX3_INPOSITION = 1000000000000000000000000000
-
-status = status | ST_AX1_INPOSITION | ST_AX2_INPOSITION | ST_AX3_INPOSITION
-
-status is then equal to 1000000010000000100000000000
-*/
-
-/*
-If iAxis = -1 the status of all axes is returned and, in theory, if 0<=iAxis<=5
-only the status of axis number iAxis is returned. However the code, as provided
-with OMDAQ-3 (3.2.4.1009), does NOT work with 0<=iAxis<=5 and XyzAxisStatus
-is always called from OMDAQ-3 with iAxis=-1. Geoff Grime is probably expecting
-to use this feature with some future version of OMDAQ-3.
-*/
-
-/*
-I don't understand what the pointer argument AxisStatus is for in
-XyzAxisStatus(int iAxis, DWORD * AxisStatus)! According to Geoff Grime:
-
-"Optionally the program may ask for more details in the AxisStatus DWORDs by
-passing a non-NULL pointer to AxisStatus.  This is DWORD[3] or DWORD[6]
-depending on the capabilities of the stage. If iAxis = -1 this is an array big
-enough to hold all axis status. If iAxis >= 0 the status of iAxis is put into
-the first element of the array. Note that for single axis calls only the single
-axis segments of status are filled so this must be managed in the calling
-program."
-
-Maybe an experiment for a future version of OMDAQ-3 ? I don't think that this
-is used for now.
-
-*/
-
 XYZ_DLL DRVSTAT _CALLSTYLE_ XyzAxisStatus(int iAxis, DWORD * AxisStatus) {
-
-  /*In the original code provided with OMDAQ-3 this
-  function had several conditional expressions to check if the stage had
-  reached hardware limits. However this is not stricly necessary so I removed
-  them.
-  This function mainly checks if the stage is in movement or not and sets the
-  status unsigned integer word accordingly.
-  */
-
-  /*
-  NOTE:
-  Due to a shortcoming in OMDAQ-3 the function XyzCapabilityMask(...) must
-  always declare that the stage is capable of translation along the 3 Cartesian
-  axes. This REQUIRES that:
-
-    3) When the status of the stage is queried through the function
-  XyzAxisStatus(-1, Dword *AxisStatus) the status mask must be ORed with the
-  appropriate ST_AX_INPOSITION mask for each of the unavailable linear axis,
-  and with the mask ST_ALL_XYZ_MOTORS_ON. This informs OMDAQ that the
-  "missing motors" are always in position and ON.
-
-  IMPORTANT: The status lights in the XYZ control panel should be green and/or
-  blue but NOT red.
-
-  */
-
-
-
   DRVSTAT status = 0;
   int iMin = 0;
   int iMax = 6;
@@ -746,15 +401,9 @@ XYZ_DLL DRVSTAT _CALLSTYLE_ XyzAxisStatus(int iAxis, DWORD * AxisStatus) {
 	iMin = iAxis;
 	iMax = iAxis;
   }
-
-  double posstep[2];
-  posstep[0]=PosStep[0]-0.01*PosStep[0];
-  posstep[1]=PosStep[1]-0.01*PosStep[1];
-
   for (int i = iMin; i < iMax; ++i) {
-
-  if (i < 2) {
-	  if (fabs(CurrentDllPosition[i] - DemandPosition[i]) >= posstep[i]) {
+	if (i < 3) {
+	  if (fabs(CurrentDllPosition[i] - DemandPosition[i]) > 0.001) {
 		switch (i) {
 		case 0:
 		  status = status | ST_AX1_MOVING;
@@ -762,7 +411,9 @@ XYZ_DLL DRVSTAT _CALLSTYLE_ XyzAxisStatus(int iAxis, DWORD * AxisStatus) {
 		case 1:
 		  status = status | ST_AX2_MOVING;
 		  break;
-
+		case 2:
+		  status = status | ST_AX3_MOVING;
+		  break;
 		}
 	  }
 	  else {
@@ -773,76 +424,138 @@ XYZ_DLL DRVSTAT _CALLSTYLE_ XyzAxisStatus(int iAxis, DWORD * AxisStatus) {
 		case 1:
 		  status = status | ST_AX2_INPOSITION;
 		  break;
-
+		case 2:
+		  status = status | ST_AX3_INPOSITION;
+		  break;
 		}
 	  }
+
+	  if (CurrentDllPosition[i] < -20.0) {
+		switch (i) {
+		case 0:
+		  status = status | ST_AX1_NEGLIM;
+		  break;
+		case 1:
+		  status = status | ST_AX2_NEGLIM;
+		  break;
+		case 2:
+		  status = status | ST_AX3_NEGLIM;
+		  break;
+		}
+	  }
+
+	  if (CurrentDllPosition[i] > 20.0) {
+		switch (i) {
+		case 0:
+		  status = status | ST_AX1_POSLIM;
+		  break;
+		case 1:
+		  status = status | ST_AX2_POSLIM;
+		  break;
+		case 2:
+		  status = status | ST_AX3_POSLIM;
+		  break;
+		}
+	  }
+	}
+	else {
+	  if (fabs(CurrentDllAngle[i - 3] - DemandAngle[i - 3]) > 0.001) {
+		switch (i - 3) {
+		case 0:
+		  status = status | ST_RO1_MOVING;
+		  break;
+		case 1:
+		  status = status | ST_RO2_MOVING;
+		  break;
+		case 2:
+		  status = status | ST_RO3_MOVING;
+		  break;
+		}
+	  }
+	  else {
+		switch (i - 3) {
+		case 0:
+		  status = status | ST_RO1_INPOSITION;
+		  break;
+		case 1:
+		  status = status | ST_RO2_INPOSITION;
+		  break;
+		case 2:
+		  status = status | ST_RO3_INPOSITION;
+		  break;
+		}
+	  }
+
+	  if (CurrentDllAngle[i - 3] < -90.0) {
+		switch (i - 3) {
+		case 0:
+		  status = status | ST_RO1_NEGLIM;
+		  break;
+		case 1:
+		  status = status | ST_RO2_NEGLIM;
+		  break;
+		case 2:
+		  status = status | ST_RO3_NEGLIM;
+		  break;
+		}
+	  }
+
+	  if (CurrentDllAngle[i - 3] > 90.0) {
+		switch (i - 3) {
+		case 0:
+		  status = status | ST_RO1_POSLIM;
+		  break;
+		case 1:
+		  status = status | ST_RO2_POSLIM;
+		  break;
+		case 2:
+		  status = status | ST_RO3_POSLIM;
+		  break;
+		}
+	  }
+	}
   }
-
-  else if(i==2){
-	 status = status | ST_AX3_INPOSITION;
-  }
-
-
-
-
-  }
-
-
-
-
 
   if (DllPowerOn) {
-	status |= (ST_ALL_XYZ_MOTORS_ON );
+	status |= (ST_ALL_XYZ_MOTORS_ON | ST_ALL_R3_MOTORS_ON);
   }
   return status;
 }
 
-
-/********************************** End of routines for stage status reporting **********************************************/
-
-
-
-
-
-/********************************** Routines for handling errors **********************************************/
-
-
-
-/*
- XyzFaultAck() is called after StageStatus reports a fault by ORing the
- status variable in the XyzAxisStatus(...) function with the mask constants
- with the terminations "POSLIM", "NEGLIM" or "HWFAULT" on any axis.
- XyzFaultAck() should be used to clear these faults (e.g. backing off from
- limit switches).
- Return values have the followinhg meanings:
- XyzFltAckOK    0    - Fault has been cleared OK (as far as I can tell)
- XyzFltAckFatal 1    - Fault cannot be cleared and the stage is dead
- (in which case OMDAQ will try to do a tidy shutdown)
- XyzFtlAckRetry 2    - I may be able to clear the fault if you try again,
-*/
+//
+// XyzFaultAck is called after StageStatus reports a fault - defined as a POSLIM, NEGLIM or HWFAULT
+// on any axis.  This should be used to clear faults (e.g. backing off from limit switches).
+// Return values have the followinhg meanings:
+// XyzFltAckOK    0    // Fault has been cleared OK (as far as I can tell)
+// XyzFltAckFatal 1    // Fault cannot be cleared and the stage is dead
+// (in which case OMDAQ will try to do a tidy shutdown)
+// XyzFtlAckRetry 2    // I may be able to clear the fault if you try again,
 XYZ_DLL int _CALLSTYLE_ XyzFaultAck() {
-
-	/*This was not a needed funcionality
-	so this function was not used.*/
-
+  // Resets the limits in one go
+  for (int i = 0; i < 3; ++i) {
+	if (CurrentDllPosition[i] < -20) {
+	  CurrentDllPosition[i] = DemandPosition[i] = -19.99;
+	}
+	if (CurrentDllPosition[i] > 20) {
+	  CurrentDllPosition[i] = DemandPosition[i] = 19.99;
+	}
+	if (CurrentDllAngle[i] < -90) {
+	  CurrentDllAngle[i] = DemandAngle[i] = -89.99;
+	}
+	if (CurrentDllAngle[i] > 90) {
+	  CurrentDllAngle[i] = DemandAngle[i] = 89.99;
+	}
+  }
   return XyzFltAckOK;
 }
 
-
-/*
- XyzLastFaultText(...) is meant to return a text description of the last
- hardware fault encountered.
- The existence of a fault must be signalled in the status flag mask
- of the XyzAxisStatus(...) function.
- nChar is the length of the supplied buffer (typically 80 characters).
-
- return true for success.
-*/
+//
+// This call returns a text description of the last HWFAULT encountered
+// The existence of a fault must be signalled in the StageStatus flag mask.
+// nChar is the length of the supplied buffer.    (typically 80 characters)
+//
+// return true for success.
 XYZ_DLL bool _CALLSTYLE_ XyzLastFaultText(char *statusText, int nChar) {
-
-	/*This was not a needed funcionality
-	so this function was not used.*/
-
   strcpy(statusText, "Fault?  What fault?");
   return true;
 }
